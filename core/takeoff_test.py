@@ -1,60 +1,42 @@
-import collections
-import collections.abc
-collections.MutableMapping = collections.abc.MutableMapping
+from pymavlink import mavutil
 
-from dronekit import connect, VehicleMode, LocationGlobalRelative
-import time
+def send_waypoint(conn, noktalar):
+    conn.mav.mission_clear_all_send(conn.target_system, conn.target_component)
+    print(conn.recv_match(type='MISSION_ACK', blocking=True))
+
+    conn.mav.mission_count_send(conn.target_system, conn.target_component, len(noktalar))
+
+    for seq, wp in enumerate(noktalar):
+        print(conn.recv_match(type=['MISSION_REQUEST', 'MISSION_REQUEST_INT'], blocking=True))
+        
+        conn.mav.mission_item_int_send(
+            conn.target_system, 
+            conn.target_component, 
+            seq,                                               
+            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, 
+            mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,              
+            0, 1, 0, 0, 0, 0,                                  
+            int(wp['enlem'] * 1e7), 
+            int(wp['boylam'] * 1e7), 
+            wp['irtifa']
+        )
+        
+    print(conn.recv_match(type='MISSION_ACK', blocking=True))
 
 
-ip = 'udp:127.0.0.1:14550' 
-vehicle = connect(ip, wait_ready=True)
-
-if vehicle:
-   print("baglandi") 
-
-def goto(enlem, boylam, irtifa):
-    if vehicle.mode.name != "GUIDED":
-        vehicle.mode = VehicleMode("GUIDED")
-        while not vehicle.mode.name == 'GUIDED':
-            time.sleep(1)
-            
-    hedef_konum = LocationGlobalRelative(enlem, boylam, irtifa)
+if __name__ == '__main__':
+    ip = 'udp:127.0.0.1:14550' 
+    conn = mavutil.mavlink_connection(ip)
+    conn.wait_heartbeat()
     
-    vehicle.simple_goto(hedef_konum)
-    print(f"hedefe gidiyor...\nenlem: {enlem},\nboylam: {boylam},\nirtifa: {irtifa}\n")
-
-goto(41.015137, 28.979530, 50)
-
-def arm_and_takeoff(aTargetAltitude):
-
-    print("Basic pre-arm checks")
-    # Don't try to arm until autopilot is ready
-    while not vehicle.is_armable:
-        print(" Waiting for vehicle to initialise...")
-        time.sleep(1)
-
-    print("Arming motors")
-    # Copter should arm in GUIDED mode
-    vehicle.mode = VehicleMode("GUIDED")
-    vehicle.armed = True
-
-    # Confirm vehicle armed before attempting to take off
-    while not vehicle.armed:
-        print(" Waiting for arming...")
-        time.sleep(1)
-
-    print("Taking off!")
-    vehicle.simple_takeoff(aTargetAltitude)  # Take off to target altitude
-
-    # Wait until the vehicle reaches a safe height before processing the goto
-    #  (otherwise the command after Vehicle.simple_takeoff will execute
-    #   immediately).
-    while True:
-        print(" Altitude: ", vehicle.location.global_relative_frame.alt)
-        # Break and return from function just below target altitude.
-        if vehicle.location.global_relative_frame.alt >= aTargetAltitude * 0.95:
-            print("Reached target altitude")
-            break
-        time.sleep(1)
-
-arm_and_takeoff(0.2)
+    waypoints = [
+        {'enlem': -35.358000, 'boylam': 149.170000, 'irtifa': 50.0},
+        {'enlem': -35.368000, 'boylam': 149.160000, 'irtifa': 50.0},
+        {'enlem': -35.368000, 'boylam': 149.170000, 'irtifa': 50.0},
+        {'enlem': -35.358000, 'boylam': 149.160000, 'irtifa': 50.0},
+        {'enlem': -35.358000, 'boylam': 149.170000, 'irtifa': 50.0}
+    ]
+    
+    send_waypoint(conn, waypoints)
+    mode_id = master.mode_mapping()['AUTO']
+    conn.set_mode(mode_id)
