@@ -45,7 +45,9 @@ for i in range(10):
 the_connection.set_mode(15)
 
 type_mask = 3576
-the_connection.mav.send(mavutil.mavlink.MAVLink_set_position_target_local_ned_message(10, the_connection.target_system, the_connection.target_component, mavutil.mavlink.MAV_FRAME_LOCAL_NED, type_mask, 100, 50, -40, 0, 0, 0, 0, 0, 0, 0, 0))
+the_connection.mav.send(mavutil.mavlink.MAVLink_set_position_target_local_ned_message(
+                        10, the_connection.target_system, the_connection.target_component,
+                        mavutil.mavlink.MAV_FRAME_LOCAL_NED, type_mask, 100, 50, -40, 0, 0, 0, 0, 0, 0, 0, 0))
 msg = the_connection.recv_match(type="COMMAND_ACK", blocking=True)
 print(msg)
 print("naved")
