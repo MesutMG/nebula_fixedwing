@@ -1,65 +1,126 @@
-from pymavlink import mavutil
+import time
+from pymavlink import mavutil, mavwp
 
-def waypoint_yukle(master, noktalar):
-    # 1. Mevcut görevi temizle
-    master.mav.mission_clear_all_send(master.target_system, master.target_component)
-    master.recv_match(type='MISSION_ACK', blocking=True)
+def arm(conn):
+    conn.mav.command_long_send(conn.target_system, conn.target_component, mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0, 1, 0, 0, 0, 0, 0, 0)
+    print("armed")
 
-    # 2. Toplam waypoint sayısını bildir
-    master.mav.mission_count_send(master.target_system, master.target_component, len(noktalar))
+def disarm(conn):
+    conn.mav.command_long_send(conn.target_system, conn.target_component, mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0, 0, 0, 0, 0, 0, 0, 0)
+    print("disarmed")
 
-    # 3. Noktaları sırayla gönder
-    for seq, wp in enumerate(noktalar):
-        # İHA'dan o anki sıra için istek bekle
-        msg = master.recv_match(type=['MISSION_REQUEST', 'MISSION_REQUEST_INT'], blocking=True)
-        
-        # MAV_CMD_NAV_WAYPOINT komutu ile koordinatı gönder
-        master.mav.mission_item_int_send(
-            master.target_system, 
-            master.target_component, 
-            seq,                                               # Sıra no
-            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT, # Referans: Kalkış noktası
-            mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,              # Komut: Waypoint'e git
-            0, 1, 0, 0, 0, 0,                                  # Diğer parametreler (gecikme, kabul yarıçapı vb.)
-            int(wp['enlem'] * 1e7), 
-            int(wp['boylam'] * 1e7), 
-            wp['irtifa']
-        )
-        
-    # 4. Yükleme tamamlandı onayını (MISSION_ACK) bekle
-    master.recv_match(type='MISSION_ACK', blocking=True)
-    print("Tüm görev noktaları uçağa yüklendi.")
+def set_mode_take_off(conn):
+    conn.set_mode(13)
+    print("take off mode")
+    time.sleep(1)
+
+def takeoff(conn, alt):
+    conn.mav.command_long_send(conn.target_system, conn.target_component, mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 15, 0, 0, 0, 0, 0, alt)
+    print("taking off")
+    for i in range(3):
+        conn.wait_heartbeat()
+        time.sleep(1)
+
+def set_mode_guided(conn):
+    conn.set_mode(15)
+    print("guided mode")
+    time.sleep(1)
+
+
+def get_alt():
+    msg = conn.recv_match(type="GLOBAL_POSITION_INT", blocking=True)
+    
+    while True:
+        m = conn.recv_match(type="GLOBAL_POSITION_INT", blocking=False)
+        if not m:
+            break
+        msg = m
+    return msg.relative_alt / 1000.0
+
+def add_mission_waypoint(line):
+    index = int(line[0])
+    enlem = float(line[8])
+    boylam = float(line[9])
+    alt = int(float(line[10]))
+    waypoints.add(mavutil.mavlink.MAVLink_mission_item_message(
+        conn.target_system, conn.target_component, index,
+        mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+        mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+        0, 0, 0, 0, 0, 0, enlem, boylam, alt))
+
+def add_mission_loiter(line):
+    index = int(line[0])
+    loiter_turns = float(line[4])
+    radius = float(line[6])
+    exitmode = int(float(line[7]))
+    enlem = float(line[8])
+    boylam = float(line[9])
+    alt = int(float(line[10]))
+    print(index,loiter_turns,radius,enlem,boylam)
+    waypoints.add(mavutil.mavlink.MAVLink_mission_item_message(
+        conn.target_system, conn.target_component, index,
+        mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+        mavutil.mavlink.MAV_CMD_NAV_LOITER_TURNS,
+        0, 1, loiter_turns, exitmode, radius, 0, enlem, boylam, alt))
+
+def upload_missions():
+    conn.waypoint_clear_all_send()
+    conn.waypoint_count_send(waypoints.count())
+    for i in range(waypoints.count()):
+        msg = conn.recv_match(type=["MISSION_REQUEST"], blocking=True)
+        conn.mav.send(waypoints.wp(msg.seq))
+        print(f"Sending waypoint {msg.seq}")
+
+def add_missions():
+    with open("/home/mesut/projects/ihaproject/core/waypoints.waypoints", "r") as f:
+
+        #skips first line
+        line = f.readline()
+        while line:
+            line = f.readline().split()
+
+            #not proper 12 element waypoint txt
+            if len(line) < 11:
+                print("not proper 12 element waypoints")
+                break
+            
+            match line[3]:
+                case "16":
+                    add_mission_waypoint(line)
+                case "18":
+                    add_mission_loiter(line)
+
 
 if __name__ == '__main__':
-    baglanti_adresi = 'udp:127.0.0.1:14550' 
-    master = mavutil.mavlink_connection(baglanti_adresi)
-    master.wait_heartbeat()
+    ip = 'udp:127.0.0.1:14550' 
+    conn = mavutil.mavlink_connection(ip, baud=115200, autoreconnect=True)
+    conn.wait_heartbeat()
+    print("baglandi")
     
-    # Yüklenecek hedef noktalar
-    gorev_noktalari = [
-        {'enlem': -35.155137, 'boylam': 148.369530, 'irtifa': 30.0}, # Waypoint 0 (Genellikle HOME kabul edilir)
-        {'enlem': -36.155500, 'boylam': 149.370000, 'irtifa': 40.0}, # Waypoint 1
-        {'enlem': -33.156000, 'boylam': 150.370500, 'irtifa': 40.0}  # Waypoint 2
-    ]
+    waypoints = mavwp.MAVWPLoader()
     
-    waypoint_yukle(master, gorev_noktalari)
+    #waypointleri uploading
+    #send_waypoints(conn, waypoints)
+    
+    arm(conn)
 
+    set_mode_take_off(conn)
 
+    arm(conn)
 
-def gorevi_baslat(master):
-    # AUTO modunun ID'sini al (ArduPlane için genellikle 10, ArduCopter için 3'tür)
-    # mode_mapping() ile dinamik olarak bulmak en güvenlisidir.
-    mode = 'AUTO'
-    mode_id = master.mode_mapping()[mode]
+    takeoff(conn, 50)
     
-    master.set_mode(mode_id)
-    print(f"Uçuş modu {mode} olarak ayarlandı. Görev başlıyor...")
+    print("kalkiyor, 2 saniye bekleniyor...")
+    for _ in range(2):
+        conn.wait_heartbeat()
+        time.sleep(1)
 
-if __name__ == '__main__':
-    baglanti_adresi = 'udp:127.0.0.1:14550' 
-    master = mavutil.mavlink_connection(baglanti_adresi)
+    set_mode_guided(conn)
     
-    master.wait_heartbeat()
-    print("İHA bağlantısı başarılı!")
+    add_missions()
+
+    upload_missions()
     
-    gorevi_baslat(master)
+    mode_id = conn.mode_mapping()['AUTO']
+    conn.set_mode(mode_id)
+    print("autoya gelildi, waypoint izleniyor")
