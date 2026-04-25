@@ -5,4 +5,28 @@ python3 -m pip install PyYAML mavproxy
 echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.bashrc
 
 
-sim_vehicle.py -w -v ArduPlane --console --map
+sim_vehicle.py -w -v ArduPlane -L EV
+
+
+
+arduplane modes
+
+0: MANUAL
+
+1: CIRCLE
+
+2: STABILIZE
+
+5: FBWA (Fly By Wire A)
+
+7: CRUISE
+
+10: AUTO
+
+11: RTL (Return To Launch)
+
+12: LOITER
+
+13: TAKEOFF
+
+15: GUIDED
